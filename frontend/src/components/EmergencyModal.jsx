@@ -1,27 +1,109 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Volume2, VolumeX } from 'lucide-react';
 
 export default function EmergencyModal({ isOpen, onSafe, onTimeout }) {
-  const [timeLeft, setTimeLeft] = useState(20);
+  const [timeLeft, setTimeLeft] = useState(60);
+  const [isMuted, setIsMuted] = useState(false);
+  const audioContext = useRef(null);
+  const oscillator = useRef(null);
+
+  const [isTriggered, setIsTriggered] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
-      setTimeLeft(20);
+      setTimeLeft(60);
+      setIsTriggered(false);
+      stopSiren();
       return;
     }
 
-    if (timeLeft === 0) {
+    startSiren();
+
+    if (timeLeft === 0 && !isTriggered) {
+      setIsTriggered(true);
       onTimeout();
-      return;
     }
 
-    const timer = setInterval(() => {
-      setTimeLeft(prev => prev - 1);
-    }, 1000);
+    let timer;
+    if (timeLeft > 0 && !isTriggered) {
+      timer = setInterval(() => {
+        setTimeLeft(prev => prev - 1);
+      }, 1000);
+    }
 
-    return () => clearInterval(timer);
-  }, [isOpen, timeLeft, onTimeout]);
+    return () => {
+      if (timer) clearInterval(timer);
+      if (!isOpen) stopSiren();
+    };
+  }, [isOpen, timeLeft, onTimeout, isTriggered]);
+
+  const handleImmediateHelp = () => {
+    setIsTriggered(true);
+    setTimeLeft(0);
+    onTimeout();
+  };
+
+  const handleSafeClick = () => {
+    setIsTriggered(false);
+    stopSiren();
+    onSafe();
+  };
+
+  const startSiren = () => {
+    if (isMuted || audioContext.current) return;
+
+    try {
+      audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+      oscillator.current = audioContext.current.createOscillator();
+      const gainNode = audioContext.current.createGain();
+
+      oscillator.current.type = 'triangle';
+      
+      const now = audioContext.current.currentTime;
+      oscillator.current.frequency.setValueAtTime(200, now);
+      
+      const sirenInterval = setInterval(() => {
+        if (!audioContext.current) {
+          clearInterval(sirenInterval);
+          return;
+        }
+        const t = audioContext.current.currentTime;
+        oscillator.current.frequency.exponentialRampToValueAtTime(400, t + 0.5);
+        oscillator.current.frequency.exponentialRampToValueAtTime(200, t + 1);
+      }, 1000);
+
+      gainNode.gain.setValueAtTime(0.5, now);
+      
+      oscillator.current.connect(gainNode);
+      gainNode.connect(audioContext.current.destination);
+      
+      oscillator.current.start();
+    } catch (e) {
+      console.error("Audio context failed", e);
+    }
+  };
+
+  const stopSiren = () => {
+    if (oscillator.current) {
+      try { oscillator.current.stop(); } catch(e) {}
+      oscillator.current.disconnect();
+      oscillator.current = null;
+    }
+    if (audioContext.current) {
+      audioContext.current.close();
+      audioContext.current = null;
+    }
+  };
+
+  const toggleMute = () => {
+    if (!isMuted) {
+      stopSiren();
+    } else {
+      startSiren();
+    }
+    setIsMuted(!isMuted);
+  };
 
   return (
     <AnimatePresence>
@@ -30,47 +112,85 @@ export default function EmergencyModal({ isOpen, onSafe, onTimeout }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          className={`fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-md p-4 ${isTriggered ? 'animate-siren bg-red-950/90' : 'bg-black/90'}`}
         >
           <motion.div
-            initial={{ scale: 0.9, y: 20 }}
+            initial={{ scale: 0.8, y: 50 }}
             animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.9, y: 20 }}
-            className="bg-slate-900 border-2 border-red-500 rounded-3xl w-full max-w-[90%] md:max-w-md shadow-2xl shadow-red-500/30 overflow-hidden"
+            exit={{ scale: 0.8, y: 50 }}
+            className="bg-slate-900 border-4 border-red-600 rounded-[2.5rem] w-full max-w-[95%] md:max-w-lg shadow-[0_0_50px_rgba(220,38,38,0.5)] overflow-hidden relative"
           >
+            {/* Siren Animation Background */}
+            <div className="absolute inset-0 bg-red-600/5 animate-pulse pointer-events-none" />
+
             {/* Header */}
-            <div className="bg-red-500 p-4 md:p-6 flex flex-col items-center text-center">
-              <motion.div
-                animate={{ scale: [1, 1.15, 1] }}
-                transition={{ repeat: Infinity, duration: 1 }}
+            <div className="bg-red-600 p-6 md:p-8 flex flex-col items-center text-center relative">
+              <button 
+                onClick={toggleMute}
+                className="absolute top-4 right-4 p-2 bg-black/20 rounded-full hover:bg-black/40 transition"
               >
-                <AlertTriangle className="w-12 h-12 md:w-16 md:h-16 text-white mb-2" />
+                {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
+              </button>
+              
+              <motion.div
+                animate={{ 
+                  scale: [1, 1.2, 1],
+                  rotate: [0, 10, -10, 0]
+                }}
+                transition={{ repeat: Infinity, duration: 0.5 }}
+                className="bg-white/20 p-4 rounded-full mb-4"
+              >
+                <AlertTriangle className="w-12 h-12 md:w-16 md:h-16 text-white" />
               </motion.div>
-              <h2 className="text-xl md:text-2xl font-bold text-white uppercase tracking-wider">Possible Accident Detected</h2>
+              <h2 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter">Emergency Alert</h2>
+              <p className="text-red-100 font-bold text-sm md:text-base mt-1">Possible heavy impact detected</p>
             </div>
 
             {/* Body */}
-            <div className="p-6 md:p-8 text-center">
-              <p className="text-slate-300 text-sm md:text-lg mb-6">Are you okay? Emergency protocol will trigger automatically in:</p>
+            <div className="p-8 md:p-10 text-center relative">
+              <p className="text-slate-400 text-base md:text-lg mb-8 font-medium">Are you safe? We will notify emergency services and your family in:</p>
               
-              <div className="text-6xl md:text-8xl font-black text-red-500 mb-8 tabular-nums tracking-tighter">
-                {timeLeft}
+              <div className="relative inline-block mb-10">
+                <svg className="w-32 h-32 md:w-40 md:h-40 transform -rotate-90">
+                  <circle
+                    cx="50%" cy="50%" r="45%"
+                    className="stroke-slate-800 stroke-[8] fill-none"
+                  />
+                  <motion.circle
+                    cx="50%" cy="50%" r="45%"
+                    className="stroke-red-600 stroke-[8] fill-none"
+                    initial={{ strokeDasharray: "283 283", strokeDashoffset: 0 }}
+                    animate={{ strokeDashoffset: 283 - (timeLeft / 60) * 283 }}
+                    transition={{ duration: 1, ease: "linear" }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-5xl md:text-6xl font-black text-white tabular-nums">{timeLeft}</span>
+                </div>
               </div>
 
-              <div className="flex flex-col gap-3 md:gap-4">
+              <div className="flex flex-col gap-4">
                 <button
-                  onClick={onSafe}
-                  className="w-full py-3.5 md:py-4 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-bold text-base md:text-lg transition shadow-lg shadow-green-500/20 active:scale-95"
+                  onClick={handleSafeClick}
+                  className="w-full py-4 md:py-5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-lg md:text-xl transition-all shadow-xl shadow-green-500/30 active:scale-95 uppercase tracking-widest"
                 >
-                  I'm Safe (Cancel)
+                  {isTriggered ? "I'm Safe Now (Stop Alarm)" : "I'm Safe"}
                 </button>
                 
-                <button
-                  onClick={onTimeout}
-                  className="w-full py-3.5 md:py-4 bg-slate-800 hover:bg-slate-700 text-red-400 border border-slate-700 rounded-2xl font-bold text-sm md:text-base transition active:scale-95"
-                >
-                  Need Help Now
-                </button>
+                {!isTriggered && (
+                  <button
+                    onClick={handleImmediateHelp}
+                    className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-red-500 border border-slate-700 rounded-2xl font-bold text-sm md:text-base transition active:scale-95"
+                  >
+                    Need Help Now
+                  </button>
+                )}
+                
+                {isTriggered && (
+                  <div className="text-red-500 font-black animate-pulse text-sm uppercase tracking-widest mt-2">
+                    Emergency Protocol Initiated
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>

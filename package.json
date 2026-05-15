@@ -2,8 +2,15 @@
   "name": "lifesaver-ai-root",
   "version": "1.0.0",
   "scripts": {
-    "frontend": "cd frontend && npm run dev",
+    "start": "cd backend && node index.js",
     "backend": "cd backend && node index.js",
-    "dev": "npm.cmd run backend & npm.cmd run frontend"
+    "frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\""
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
