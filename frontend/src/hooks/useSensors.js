@@ -4,11 +4,12 @@ export function useSensors() {
   const [motionData, setMotionData] = useState({ x: 0, y: 0, z: 0, maxG: 0, currentG: 0 });
   const [speed, setSpeed] = useState(0);
   const [location, setLocation] = useState(null);
+  const [locationError, setLocationError] = useState(null);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [orientation, setOrientation] = useState({ alpha: 0, beta: 0, gamma: 0 });
   
   // Settings (could be passed as props later)
-  const impactThreshold = 4.0; // G
+  const impactThreshold = 1.5; // G - Lowered for testing drops
   const speedThreshold = 5; // km/h (Lowered for testing as requested)
   
   // History refs to avoid re-renders
@@ -45,8 +46,11 @@ export function useSensors() {
           const currentSpeed = position.coords.speed ? position.coords.speed * 3.6 : 0;
           setLocation({
             lat: position.coords.latitude,
-            lng: position.coords.longitude
+            lng: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            timestamp: position.timestamp || Date.now()
           });
+          setLocationError(null);
           setSpeed(currentSpeed);
           
           // Update speed history (keep last 5 seconds)
@@ -54,7 +58,13 @@ export function useSensors() {
           speedHistory.current.push({ speed: currentSpeed, time: now });
           speedHistory.current = speedHistory.current.filter(item => now - item.time < 5000);
         },
-        (error) => console.error(error),
+        (error) => {
+          console.error(error);
+          let errorMessage = "GPS unavailable";
+          if (error.code === error.PERMISSION_DENIED) errorMessage = "Permission denied";
+          if (error.code === error.NETWORK_ERR) errorMessage = "Network error";
+          setLocationError(errorMessage);
+        },
         { enableHighAccuracy: true }
       );
     }
@@ -123,9 +133,10 @@ export function useSensors() {
       if (diff > 45) significantOrientationChange = true;
     }
 
-    // Trigger if (Impact + Significant Speed Drop) OR (High Impact + Movement) OR (Impact + Rollover)
+    // Trigger if (Impact + Significant Speed Drop) OR (High Impact) OR (Impact + Rollover)
+    // Modified to trigger on High Impact alone to allow testing small drops when stationary.
     if ((highGForce && significantSpeedDrop) || 
-        (highGForce && maxSpeedRecent > 5) || 
+        (highGForce) || 
         (highGForce && significantOrientationChange)) {
       return true;
     }
@@ -146,6 +157,7 @@ export function useSensors() {
     motionData, 
     speed, 
     location, 
+    locationError,
     orientation,
     checkAccident 
   };

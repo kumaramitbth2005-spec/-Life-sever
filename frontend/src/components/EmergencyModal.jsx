@@ -55,13 +55,31 @@ export default function EmergencyModal({ isOpen, onSafe, onTimeout }) {
 
     try {
       audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
-      oscillator.current = audioContext.current.createOscillator();
+      
+      // Dual oscillators for a thick, cool, modern sci-fi sound
+      const osc1 = audioContext.current.createOscillator();
+      const osc2 = audioContext.current.createOscillator();
       const gainNode = audioContext.current.createGain();
 
-      oscillator.current.type = 'triangle';
+      // Mock oscillator reference so stopSiren works seamlessly
+      oscillator.current = {
+        stop: () => {
+          try { osc1.stop(); } catch(e) {}
+          try { osc2.stop(); } catch(e) {}
+        },
+        disconnect: () => {
+          try { osc1.disconnect(); } catch(e) {}
+          try { osc2.disconnect(); } catch(e) {}
+        }
+      };
+
+      osc1.type = 'square';
+      osc2.type = 'sawtooth';
       
       const now = audioContext.current.currentTime;
-      oscillator.current.frequency.setValueAtTime(200, now);
+      osc1.frequency.setValueAtTime(900, now);
+      osc2.frequency.setValueAtTime(1800, now); // One octave higher for a richer, louder sound
+      gainNode.gain.setValueAtTime(0, now);
       
       const sirenInterval = setInterval(() => {
         if (!audioContext.current) {
@@ -69,16 +87,26 @@ export default function EmergencyModal({ isOpen, onSafe, onTimeout }) {
           return;
         }
         const t = audioContext.current.currentTime;
-        oscillator.current.frequency.exponentialRampToValueAtTime(400, t + 0.5);
-        oscillator.current.frequency.exponentialRampToValueAtTime(200, t + 1);
-      }, 1000);
-
-      gainNode.gain.setValueAtTime(0.5, now);
+        
+        // The most universal "Good" Emergency Siren (Classic Hi-Lo / Nee-Naw)
+        gainNode.gain.setValueAtTime(0.4, t);
+        
+        // High Tone (350ms)
+        osc1.frequency.setValueAtTime(900, t);
+        osc2.frequency.setValueAtTime(1800, t);
+        
+        // Low Tone (350ms)
+        osc1.frequency.setValueAtTime(700, t + 0.35);
+        osc2.frequency.setValueAtTime(1400, t + 0.35);
+        
+      }, 700);
       
-      oscillator.current.connect(gainNode);
+      osc1.connect(gainNode);
+      osc2.connect(gainNode);
       gainNode.connect(audioContext.current.destination);
       
-      oscillator.current.start();
+      osc1.start();
+      osc2.start();
     } catch (e) {
       console.error("Audio context failed", e);
     }

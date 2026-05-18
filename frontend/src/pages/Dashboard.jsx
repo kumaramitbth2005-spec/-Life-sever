@@ -3,8 +3,8 @@ import { API_URL } from '../config';
 import { useSensors } from '../hooks/useSensors';
 import EmergencyModal from '../components/EmergencyModal';
 import { io } from 'socket.io-client';
-import { Shield, ShieldAlert, Activity, Navigation, Smartphone, Settings, Clock, History, Phone, Hospital } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
+import { Shield, ShieldAlert, Activity, Navigation, Smartphone, Settings, Clock, History, Phone, Hospital, MapPin, Copy, ExternalLink, RefreshCw, AlertCircle } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, Circle } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -36,11 +36,16 @@ function MapUpdater({ center }) {
 }
 
 export default function Dashboard() {
-  const { startMonitoring, stopMonitoring, isMonitoring, motionData, speed, location, checkAccident } = useSensors();
+  const { startMonitoring, stopMonitoring, isMonitoring, motionData, speed, location, locationError, checkAccident } = useSensors();
   const [modalOpen, setModalOpen] = useState(false);
   const [incidentData, setIncidentData] = useState(null);
   const [logs, setLogs] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
+
+  // Navigation Section States
+  const [locationStatus, setLocationStatus] = useState("Waiting to start monitoring...");
+  const [addressDetails, setAddressDetails] = useState(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
   
   // Settings
   const [settings, setSettings] = useState({
@@ -66,6 +71,57 @@ export default function Dashboard() {
     
     return () => socket.disconnect();
   }, []);
+
+  // Handle Reverse Geocoding
+  useEffect(() => {
+    if (!isMonitoring) {
+        setLocationStatus("Waiting to start monitoring...");
+        setAddressDetails(null);
+        return;
+    }
+    
+    if (locationError) {
+        setLocationStatus(`Error: ${locationError}`);
+        return;
+    }
+
+    if (!location) {
+        setLocationStatus("Fetching GPS location...");
+        return;
+    }
+
+    if (location && !addressDetails && !isGeocoding) {
+        setLocationStatus("Location found successfully. Reverse geocoding...");
+        setIsGeocoding(true);
+        
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${location.lat}&lon=${location.lng}`)
+            .then(res => res.json())
+            .then(data => {
+                setAddressDetails({
+                    fullAddress: data.display_name,
+                    city: data.address.city || data.address.town || data.address.village || 'Unknown City',
+                    state: data.address.state || 'Unknown State',
+                    country: data.address.country || 'Unknown Country',
+                    postalCode: data.address.postcode || 'N/A'
+                });
+                setLocationStatus("Ready for hospital search.");
+                setIsGeocoding(false);
+            })
+            .catch(err => {
+                console.error("Geocoding error:", err);
+                setLocationStatus("Reverse geocoding failed.");
+                setIsGeocoding(false);
+            });
+    }
+  }, [location, locationError, isMonitoring, addressDetails, isGeocoding]);
+
+  const handleCopyLocation = () => {
+    if (location && addressDetails) {
+        const text = `Coordinates: ${location.lat}, ${location.lng}\nAddress: ${addressDetails.fullAddress}`;
+        navigator.clipboard.writeText(text);
+        alert("Location copied to clipboard!");
+    }
+  };
 
   const showNotification = (title, body) => {
     if ("Notification" in window && Notification.permission === "granted") {
@@ -282,75 +338,170 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right Column: Live Map */}
-        <div className="lg:col-span-8 bg-slate-800/40 backdrop-blur-xl rounded-[2rem] border border-white/5 overflow-hidden flex flex-col shadow-2xl">
-          <div className="p-6 border-b border-white/5 flex items-center justify-between">
-            <h3 className="text-xl font-bold flex items-center gap-2"><Navigation className="w-6 h-6 text-green-400"/> Live Emergency Tracking</h3>
-            {incidentData && (
-              <div className="bg-red-600 text-white px-4 py-1.5 rounded-full text-xs font-black animate-pulse flex items-center gap-2">
-                <Activity className="w-4 h-4"/> EMERGENCY ACTIVE
+        {/* Right Column: Live Map & Navigation */}
+        <div className="lg:col-span-8 space-y-6">
+          
+          {/* Live Location Details Card */}
+          <div className="bg-slate-800/40 backdrop-blur-xl rounded-[2rem] p-6 border border-white/5 sticky top-6 z-20 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold flex items-center gap-2"><MapPin className="w-6 h-6 text-blue-400"/> Current Location Details</h3>
+              
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                {locationStatus.includes("Error") ? (
+                   <AlertCircle className="w-4 h-4 text-red-500" />
+                ) : isGeocoding || !location ? (
+                   <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                ) : (
+                   <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                )}
+                <span className={locationStatus.includes("Error") ? "text-red-400" : "text-blue-400"}>{locationStatus}</span>
               </div>
-            )}
-          </div>
-          <div className="flex-1 relative min-h-[600px] z-10">
-            <MapContainer 
-              center={location || { lat: 28.704060, lng: 77.102493 }} 
-              zoom={13} 
-              style={{ height: '100%', width: '100%', zIndex: 0 }}
-            >
-              <TileLayer
-                attribution='&copy; OpenStreetMap'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              {location && (
-                <>
-                  <MapUpdater center={location} />
-                  <Marker position={[location.lat, location.lng]}>
-                    <Popup>Your Location</Popup>
-                  </Marker>
-                </>
-              )}
-              {incidentData?.hospital && (
-                <>
-                  <Marker 
-                    position={[incidentData.hospital.coordinates.lat, incidentData.hospital.coordinates.lng]}
-                    icon={hospitalIcon}
-                  >
-                    <Popup>{incidentData.hospital.name}</Popup>
-                  </Marker>
-                  <Polyline 
-                    positions={[
-                      [location.lat, location.lng],
-                      [incidentData.hospital.coordinates.lat, incidentData.hospital.coordinates.lng]
-                    ]}
-                    color="red"
-                    dashArray="10, 10"
-                    weight={3}
-                  />
-                </>
-              )}
-            </MapContainer>
-            
-            {incidentData?.hospital && (
-              <div className="absolute bottom-6 left-6 right-6 z-[1000]">
-                <div className="bg-slate-900/90 backdrop-blur-xl p-6 rounded-[1.5rem] border border-red-500/30 shadow-2xl flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="bg-red-500/20 p-3 rounded-2xl">
-                      <Navigation className="w-8 h-8 text-red-500" />
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">Assigned Hospital</div>
-                      <div className="text-xl font-black text-white">{incidentData.hospital.name}</div>
-                      <div className="text-sm text-slate-400">{incidentData.hospital.address}</div>
+            </div>
+
+            {location && addressDetails ? (
+              <div className="bg-slate-900/60 rounded-[1.5rem] p-5 border border-white/5">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  <div>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Full Address</p>
+                    <p className="text-white font-medium text-sm mb-3">{addressDetails.fullAddress}</p>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">City</p>
+                        <p className="text-white text-sm">{addressDetails.city}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">State</p>
+                        <p className="text-white text-sm">{addressDetails.state}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Postal Code</p>
+                        <p className="text-white text-sm">{addressDetails.postalCode}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Country</p>
+                        <p className="text-white text-sm">{addressDetails.country}</p>
+                      </div>
                     </div>
                   </div>
-                  <div className="hidden md:block text-right">
-                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Status</div>
-                    <div className="text-lg font-black text-green-500">Ambulance Notified</div>
+                  
+                  <div className="flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Coordinates</p>
+                        <span className="text-slate-500 text-[10px] font-bold"><Clock className="w-3 h-3 inline mr-1"/>{location.timestamp ? new Date(location.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}</span>
+                      </div>
+                      <p className="text-white font-mono text-sm bg-slate-800/50 p-2 rounded-lg border border-slate-700">
+                        Lat: {location.lat.toFixed(6)} <br/>
+                        Lng: {location.lng.toFixed(6)}
+                      </p>
+                      <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-2">
+                        Accuracy: <span className="text-green-400">±{Math.round(location.accuracy || 0)} meters</span>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3 mt-4">
+                      <button 
+                        onClick={() => window.open(`https://www.google.com/maps?q=${location.lat},${location.lng}`, '_blank')}
+                        className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <ExternalLink className="w-4 h-4" /> Open Maps
+                      </button>
+                      <button 
+                        onClick={handleCopyLocation}
+                        className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <Copy className="w-4 h-4" /> Copy details
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
+            ) : (
+               <div className="h-32 flex flex-col items-center justify-center bg-slate-900/30 rounded-[1.5rem] border border-dashed border-slate-700">
+                 {locationError ? (
+                    <button onClick={startMonitoring} className="px-4 py-2 bg-slate-800 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700"><RefreshCw className="w-4 h-4"/> Retry Location</button>
+                 ) : (
+                    <p className="text-slate-500 text-sm">Location details will appear here once detected.</p>
+                 )}
+               </div>
             )}
+          </div>
+
+          <div className="bg-slate-800/40 backdrop-blur-xl rounded-[2rem] border border-white/5 overflow-hidden flex flex-col shadow-2xl h-[600px]">
+            <div className="p-6 border-b border-white/5 flex items-center justify-between">
+              <h3 className="text-xl font-bold flex items-center gap-2"><Navigation className="w-6 h-6 text-green-400"/> Live Emergency Tracking</h3>
+              {incidentData && (
+                <div className="bg-red-600 text-white px-4 py-1.5 rounded-full text-xs font-black animate-pulse flex items-center gap-2">
+                  <Activity className="w-4 h-4"/> EMERGENCY ACTIVE
+                </div>
+              )}
+            </div>
+            <div className="flex-1 relative z-10">
+              <MapContainer 
+                center={location || { lat: 28.704060, lng: 77.102493 }} 
+                zoom={13} 
+                style={{ height: '100%', width: '100%', zIndex: 0 }}
+              >
+                <TileLayer
+                  attribution='&copy; OpenStreetMap'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                {location && (
+                  <>
+                    <MapUpdater center={location} />
+                    <Marker position={[location.lat, location.lng]}>
+                      <Popup>Your Location</Popup>
+                    </Marker>
+                    <Circle 
+                      center={[location.lat, location.lng]} 
+                      radius={location.accuracy || 500} 
+                      pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 }}
+                    />
+                  </>
+                )}
+                {incidentData?.hospital && (
+                  <>
+                    <Marker 
+                      position={[incidentData.hospital.coordinates.lat, incidentData.hospital.coordinates.lng]}
+                      icon={hospitalIcon}
+                    >
+                      <Popup>{incidentData.hospital.name}</Popup>
+                    </Marker>
+                    <Polyline 
+                      positions={[
+                        [location.lat, location.lng],
+                        [incidentData.hospital.coordinates.lat, incidentData.hospital.coordinates.lng]
+                      ]}
+                      color="red"
+                      dashArray="10, 10"
+                      weight={3}
+                    />
+                  </>
+                )}
+              </MapContainer>
+              
+              {incidentData?.hospital && (
+                <div className="absolute bottom-6 left-6 right-6 z-[1000]">
+                  <div className="bg-slate-900/90 backdrop-blur-xl p-6 rounded-[1.5rem] border border-red-500/30 shadow-2xl flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-red-500/20 p-3 rounded-2xl">
+                        <Navigation className="w-8 h-8 text-red-500" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">Assigned Hospital</div>
+                        <div className="text-xl font-black text-white">{incidentData.hospital.name}</div>
+                        <div className="text-sm text-slate-400">{incidentData.hospital.address}</div>
+                      </div>
+                    </div>
+                    <div className="hidden md:block text-right">
+                      <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Status</div>
+                      <div className="text-lg font-black text-green-500">Ambulance Notified</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
