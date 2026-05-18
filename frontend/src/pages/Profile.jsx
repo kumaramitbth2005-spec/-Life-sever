@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_URL } from '../config';
 import { User, Heart, Phone, Save, Plus, Trash2, Hospital } from 'lucide-react';
 
 export default function Profile() {
@@ -25,7 +26,7 @@ export default function Profile() {
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/users');
+      const res = await fetch(`${API_URL}/api/users`);
       const data = await res.json();
       if (data.length > 0) {
         const user = data[0];
@@ -52,7 +53,7 @@ export default function Profile() {
     const validContacts = formData.emergencyContacts.filter(c => c.name && c.phone);
     
     try {
-      const res = await fetch('http://localhost:5000/api/users', {
+      const res = await fetch(`${API_URL}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, emergencyContacts: validContacts })

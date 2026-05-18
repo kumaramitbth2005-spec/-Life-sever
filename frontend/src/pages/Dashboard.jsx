@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_URL } from '../config';
 import { useSensors } from '../hooks/useSensors';
 import EmergencyModal from '../components/EmergencyModal';
 import { io } from 'socket.io-client';
@@ -49,7 +50,7 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    const socket = io('http://localhost:5000');
+    const socket = io(API_URL);
     fetchLogs();
     fetchProfile();
 
@@ -86,7 +87,7 @@ export default function Dashboard() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/incidents');
+      const res = await fetch(`${API_URL}/api/incidents`);
       const data = await res.json();
       setLogs(data);
     } catch (err) {}
@@ -94,7 +95,7 @@ export default function Dashboard() {
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/users');
+      const res = await fetch(`${API_URL}/api/users`);
       const data = await res.json();
       if (data.length > 0) setUserProfile(data[0]);
     } catch (err) {}
@@ -111,7 +112,7 @@ export default function Dashboard() {
   const handleTimeout = async () => {
     setModalOpen(false);
     try {
-      const response = await fetch('http://localhost:5000/api/incidents', {
+      const response = await fetch(`${API_URL}/api/incidents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
